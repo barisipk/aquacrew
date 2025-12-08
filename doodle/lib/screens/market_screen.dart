@@ -141,7 +141,7 @@ class _MarketScreenState extends State<MarketScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Text(
-                  item.storeTitle ?? _gameState.t(item.name),
+                  _gameState.t(item.name),
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -153,11 +153,11 @@ class _MarketScreenState extends State<MarketScreen> {
               ),
 
               // Açıklama
-              if (item.description != null || item.storeDescription != null)
+              if (item.description != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Text(
-                    item.storeDescription ?? _gameState.t(item.description!),
+                    _gameState.t(item.description!),
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: Colors.grey.shade600,
