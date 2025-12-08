@@ -46,23 +46,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.all(15),
             color: Colors.purple.shade50,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
-                Text(
-                  _gameState.t('language_title'),
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.purple.shade700,
-                  ),
-                ),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildLanguageButton('tr', 'TR'),
-                    const SizedBox(width: 10),
-                    _buildLanguageButton('en', 'EN'),
+                    Text(
+                      _gameState.t('language_title'),
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.purple.shade700,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        _buildLanguageButton('tr', 'TR'),
+                        const SizedBox(width: 10),
+                        _buildLanguageButton('en', 'EN'),
+                      ],
+                    ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                Divider(color: Colors.purple.shade100),
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: () async {
+                    await _gameState.restorePurchases();
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            _gameState.t('restore_purchase_success'),
+                          ),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.purple.shade200),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _gameState.t('restore_purchases_button'),
+                        style: GoogleFonts.poppins(
+                          color: Colors.purple.shade700,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

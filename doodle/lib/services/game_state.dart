@@ -116,6 +116,10 @@ class GameState extends ChangeNotifier {
 
       'item_plat_default_name': 'Varsayılan',
       'item_plat_default_desc': 'Klasik platform',
+
+      'restore_purchases_button': 'Satın Almaları Geri Yükle',
+      'restore_purchase_success': 'Satın almalar geri yüklendi',
+      'restore_purchase_error': 'Geri yükleme sırasında hata oluştu',
     },
     'en': {
       'app_title': 'Aqua Crew',
@@ -148,6 +152,10 @@ class GameState extends ChangeNotifier {
       'cancel': 'Cancel',
       'buy_confirm_title': 'Buy',
       'buy_confirm_content': 'Do you want to buy this item?',
+
+      'restore_purchases_button': 'Restore Purchases',
+      'restore_purchase_success': 'Purchases restored successfully',
+      'restore_purchase_error': 'Error restoring purchases',
 
       // Items
       'item_bg_default_name': 'Default',
@@ -267,13 +275,17 @@ class GameState extends ChangeNotifier {
 
   void _listenToPurchaseUpdated(List<PurchaseDetails> purchaseDetailsList) {
     purchaseDetailsList.forEach((PurchaseDetails purchaseDetails) async {
+      print(
+        'Purchase Update: status=${purchaseDetails.status} productID=${purchaseDetails.productID}',
+      );
       if (purchaseDetails.status == PurchaseStatus.pending) {
         // Show pending UI
       } else {
         if (purchaseDetails.status == PurchaseStatus.error) {
-          // Handle error
+          print('Purchase Error: ${purchaseDetails.error}');
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
             purchaseDetails.status == PurchaseStatus.restored) {
+          print('Purchase success/restored: ${purchaseDetails.productID}');
           bool valid = await _verifyPurchase(purchaseDetails);
           if (valid) {
             _deliverProduct(purchaseDetails);
@@ -294,10 +306,11 @@ class GameState extends ChangeNotifier {
   }
 
   void _handleInvalidPurchase(PurchaseDetails purchaseDetails) {
-    // Handle invalid purchase
+    print('Invalid Purchase: ${purchaseDetails.productID}');
   }
 
   void _deliverProduct(PurchaseDetails purchaseDetails) {
+    print('Delivering Product: ${purchaseDetails.productID}');
     // Unlock the item
     purchaseItem(purchaseDetails.productID);
   }
@@ -328,6 +341,12 @@ class GameState extends ChangeNotifier {
       if (kDebugMode) {
         print("Product not found in store: $productId");
       }
+    }
+  }
+
+  Future<void> restorePurchases() async {
+    if (await _iap.isAvailable()) {
+      await _iap.restorePurchases();
     }
   }
 
@@ -605,8 +624,10 @@ class GameState extends ChangeNotifier {
   }
 
   Future<void> purchaseItem(String id) async {
+    print('Attempting to purchase/unlock item: $id');
     final index = allItems.indexWhere((item) => item.id == id);
     if (index != -1) {
+      print('Item found in allItems: $id');
       allItems[index] = allItems[index].copyWith(isPurchased: true);
 
       final purchasedIds = _prefs?.getStringList('purchasedItems') ?? [];
@@ -615,10 +636,13 @@ class GameState extends ChangeNotifier {
         await _prefs?.setStringList('purchasedItems', purchasedIds);
       }
       notifyListeners();
+    } else {
+      print('Item NOT found in allItems: $id');
     }
 
     // Eğer tüm karakterler paketi alındıysa hepsini aç
     if (id == 'bundle_all_characters') {
+      print('Unlocking all characters for bundle...');
       for (int i = 0; i < allItems.length; i++) {
         if (allItems[i].type == ItemType.character) {
           // Exclude specific characters from the bundle
@@ -640,6 +664,7 @@ class GameState extends ChangeNotifier {
         }
       }
       notifyListeners();
+      print('All characters unlocked.');
     }
   }
 
