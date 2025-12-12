@@ -757,7 +757,7 @@ class Enemy extends SpriteComponent
 }
 
 // --- SCORE BOOST ---
-class ScoreBoost extends PositionComponent
+class ScoreBoost extends SpriteComponent
     with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
   ScoreBoost({required Vector2 position})
     : super(
@@ -769,15 +769,7 @@ class ScoreBoost extends PositionComponent
 
   @override
   Future<void> onLoad() async {
-    // Yıldız ikonu için TextComponent kullanıyoruz
-    add(
-      TextComponent(
-        text: '⭐',
-        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
-        anchor: Anchor.center,
-        position: Vector2(20, 20),
-      ),
-    );
+    sprite = await gameRef.loadSprite('x2.png');
     add(CircleHitbox());
   }
 
@@ -790,7 +782,7 @@ class ScoreBoost extends PositionComponent
 }
 
 // --- ROCKET BOOST ---
-class RocketBoost extends PositionComponent
+class RocketBoost extends SpriteComponent
     with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
   RocketBoost({required Vector2 position})
     : super(
@@ -802,15 +794,7 @@ class RocketBoost extends PositionComponent
 
   @override
   Future<void> onLoad() async {
-    // Roket ikonu için TextComponent kullanıyoruz
-    add(
-      TextComponent(
-        text: '🚀',
-        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
-        anchor: Anchor.center,
-        position: Vector2(20, 20),
-      ),
-    );
+    sprite = await gameRef.loadSprite('roket.png');
     add(CircleHitbox());
   }
 
@@ -823,8 +807,10 @@ class RocketBoost extends PositionComponent
 }
 
 // --- NEGATIVE BOOST ---
-class NegativeBoost extends PositionComponent
+class NegativeBoost extends SpriteComponent
     with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
+  double speed = 80; // Aşağı hareket hızı
+
   NegativeBoost({required Vector2 position})
     : super(
         position: position,
@@ -835,22 +821,16 @@ class NegativeBoost extends PositionComponent
 
   @override
   Future<void> onLoad() async {
-    // Tehlike ikonu
-    add(
-      TextComponent(
-        text: '☠️',
-        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
-        anchor: Anchor.center,
-        position: Vector2(20, 20),
-      ),
-    );
+    sprite = await gameRef.loadSprite('1000.png');
     add(CircleHitbox());
   }
 
   @override
   void update(double dt) {
     super.update(dt);
-    // Hafif sallanma animasyonu
-    angle = sin(gameRef.score / 5) * 0.2;
+    // Aşağı doğru hareket (düşmanlar gibi)
+    position.y += speed * dt;
+    // Hafif sallanma
+    angle = sin(position.y / 20) * 0.15;
   }
 }
