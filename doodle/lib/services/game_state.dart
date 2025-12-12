@@ -29,6 +29,10 @@ class GameState extends ChangeNotifier {
   // Localization
   final ValueNotifier<String> languageNotifier = ValueNotifier<String>('tr');
 
+  // Gyroscope Control
+  final ValueNotifier<bool> gyroscopeNotifier = ValueNotifier<bool>(false);
+  bool get useGyroscope => gyroscopeNotifier.value;
+
   final Map<String, Map<String, String>> _translations = {
     'tr': {
       'app_title': 'Aqua Crew',
@@ -120,6 +124,8 @@ class GameState extends ChangeNotifier {
       'restore_purchases_button': 'Satın Almaları Geri Yükle',
       'restore_purchase_success': 'Satın almalar geri yüklendi',
       'restore_purchase_error': 'Geri yükleme sırasında hata oluştu',
+      'gyroscope_control': 'Eğim Kontrolü',
+      'gyroscope_description': 'Cihazı eğerek oyna',
     },
     'en': {
       'app_title': 'Aqua Crew',
@@ -211,6 +217,8 @@ class GameState extends ChangeNotifier {
 
       'item_plat_default_name': 'Default',
       'item_plat_default_desc': 'Classic platform',
+      'gyroscope_control': 'Tilt Control',
+      'gyroscope_description': 'Play by tilting device',
     },
   };
 
@@ -219,6 +227,7 @@ class GameState extends ChangeNotifier {
     _initializeItems();
     _loadState();
     _loadLanguage();
+    _loadGyroscope();
 
     // IAP Initialization
     final Stream<List<PurchaseDetails>> purchaseUpdated = _iap.purchaseStream;
@@ -372,6 +381,16 @@ class GameState extends ChangeNotifier {
       languageNotifier.value = code;
       await _prefs?.setString('language', code);
     }
+  }
+
+  void _loadGyroscope() {
+    gyroscopeNotifier.value = _prefs?.getBool('useGyroscope') ?? false;
+  }
+
+  Future<void> setGyroscope(bool value) async {
+    gyroscopeNotifier.value = value;
+    await _prefs?.setBool('useGyroscope', value);
+    notifyListeners();
   }
 
   String t(String key) {

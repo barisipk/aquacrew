@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'dart:ui' as ui;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flame/game.dart';
@@ -7,6 +8,7 @@ import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flame/collisions.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import 'screens/start_screen.dart';
 import 'services/game_state.dart';
 
@@ -215,12 +217,25 @@ class GameScreen extends StatelessWidget {
 class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
   late Player player;
   late TextComponent scoreText;
+  TextComponent? boostTimerText;
   final GameState gameState = GameState();
   double score = 0;
   double highScore = 0;
   double generatedHeight = 0;
   Random random = Random();
   bool isGameOver = false;
+
+  // Accelerometer
+  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
+  double _accelerometerX = 0;
+
+  // Boost State
+  double scoreMultiplier = 1.0;
+  bool isRocketActive = false;
+  double rocketTimer = 0;
+  double scoreBoostTimer = 0;
+  static const double rocketDuration = 2.0; // 2 saniye
+  static const double scoreBoostDuration = 3.0; // 3 saniye
 
   // Şeffaf arka plan ile başlat
   ZiplayanOyun() : super();
@@ -236,7 +251,26 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
     final prefs = await SharedPreferences.getInstance();
     highScore = prefs.getDouble('highScore') ?? 0;
 
+    // Start accelerometer if gyroscope mode is enabled
+    _startAccelerometer();
+
     startGame();
+  }
+
+  void _startAccelerometer() {
+    _accelerometerSubscription?.cancel();
+    if (gameState.useGyroscope) {
+      _accelerometerSubscription = accelerometerEventStream().listen((event) {
+        // event.x is negative when tilting right, positive when tilting left
+        _accelerometerX = event.x;
+      });
+    }
+  }
+
+  @override
+  void onRemove() {
+    _accelerometerSubscription?.cancel();
+    super.onRemove();
   }
 
   void startGame() {
@@ -244,6 +278,13 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
     isGameOver = false;
     score = 0;
     generatedHeight = 0;
+
+    // Reset boost states
+    scoreMultiplier = 1.0;
+    isRocketActive = false;
+    rocketTimer = 0;
+    scoreBoostTimer = 0;
+
     resumeEngine();
 
     // 1. Başlangıç Platformu (Tam Orta Alt)
@@ -273,10 +314,17 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
       text: '${gameState.t('score')}: 0',
       position: Vector2(20, 50),
       textRenderer: TextPaint(
-        style: const TextStyle(
-          color: Colors.black,
-          fontSize: 24,
+        style: GoogleFonts.poppins(
+          color: Colors.white,
+          fontSize: 26,
           fontWeight: FontWeight.bold,
+          shadows: [
+            const Shadow(
+              blurRadius: 4,
+              color: Colors.black54,
+              offset: Offset(2, 2),
+            ),
+          ],
         ),
       ),
     );
@@ -292,6 +340,48 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
   void update(double dt) {
     if (isGameOver) return;
     super.update(dt);
+
+    // Gyroscope kontrolü
+    if (gameState.useGyroscope) {
+      // Sensitivity factor for accelerometer movement
+      const double sensitivity = 3.0;
+      double moveX = -_accelerometerX * sensitivity * dt * 60;
+      player.position.x += moveX;
+
+      // Ekrandan taşma (Sonsuz geçiş)
+      if (player.position.x > size.x) player.position.x = 0;
+      if (player.position.x < 0) player.position.x = size.x;
+
+      // Sprite yönünü güncelle
+      if (moveX < -0.5 && !player.isFlippedHorizontally) {
+        player.flipHorizontally();
+      } else if (moveX > 0.5 && player.isFlippedHorizontally) {
+        player.flipHorizontally();
+      }
+    }
+
+    // Boost Timer Updates
+    if (scoreBoostTimer > 0) {
+      scoreBoostTimer -= dt;
+      _updateBoostTimerDisplay();
+      if (scoreBoostTimer <= 0) {
+        scoreMultiplier = 1.0;
+        scoreBoostTimer = 0;
+        _removeBoostTimerDisplay();
+      }
+    }
+
+    if (rocketTimer > 0) {
+      rocketTimer -= dt;
+      // Rocket modunda hızlı yukarı git
+      player.velocityY = -800; // Güçlü yukarı kuvvet
+      _updateBoostTimerDisplay();
+      if (rocketTimer <= 0) {
+        isRocketActive = false;
+        rocketTimer = 0;
+        _removeBoostTimerDisplay();
+      }
+    }
 
     // Kamera ve Dünya Kaydırma
     // Karakter ekranın yarısından yukarı çıkarsa dünya aşağı kayar
@@ -311,12 +401,34 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
         if (e.position.y > size.y * 2) e.removeFromParent();
       });
 
-      score += diff;
-      scoreText.text = '${gameState.t('score')}: ${score.toInt()}';
+      // Boost'ları da kaydır
+      children.whereType<ScoreBoost>().forEach((b) {
+        b.position.y += diff;
+        if (b.position.y > size.y * 2) b.removeFromParent();
+      });
+      children.whereType<RocketBoost>().forEach((b) {
+        b.position.y += diff;
+        if (b.position.y > size.y * 2) b.removeFromParent();
+      });
+      children.whereType<NegativeBoost>().forEach((b) {
+        b.position.y += diff;
+        if (b.position.y > size.y * 2) b.removeFromParent();
+      });
+
+      score += diff * scoreMultiplier;
+
+      // Score text'i güncelle (multiplier varsa göster)
+      if (scoreMultiplier > 1) {
+        scoreText.text =
+            '${gameState.t('score')}: ${score.toInt()} (x${scoreMultiplier.toInt()})';
+      } else {
+        scoreText.text = '${gameState.t('score')}: ${score.toInt()}';
+      }
 
       // Yeni platform üretme mekanizması
       generatePlatforms(diff);
       spawnEnemies(diff);
+      spawnBoosts(diff);
     }
 
     // Ölme kontrolü (Ekranın altı)
@@ -328,6 +440,9 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
   @override
   void onPanUpdate(DragUpdateInfo info) {
     if (isGameOver) return;
+    // Gyroscope modu açıksa touch kontrolü devre dışı
+    if (gameState.useGyroscope) return;
+
     player.position.x += info.delta.global.x;
 
     // Ekrandan taşma (Sonsuz geçiş)
@@ -362,12 +477,124 @@ class ZiplayanOyun extends FlameGame with HasCollisionDetection, PanDetector {
     // Dynamic Difficulty: Enemy Spawn Rate
     // Başlangıçta %0.5, her 1000 puanda %0.2 artar, max %3
     double spawnChance = 0.5 + (score / 1000) * 0.2;
-    if (spawnChance > 3.0) spawnChance = 3.0;
+    if (spawnChance > 5.0) spawnChance = 5.0;
 
     if (random.nextDouble() * 100 < spawnChance) {
       double x = random.nextDouble() * (size.x - 50);
       add(Enemy(position: Vector2(x, -100)));
     }
+  }
+
+  void spawnBoosts(double dy) {
+    // Ekranda zaten boost varsa spawn etme
+    final existingBoosts =
+        children.whereType<ScoreBoost>().length +
+        children.whereType<RocketBoost>().length +
+        children.whereType<NegativeBoost>().length;
+    if (existingBoosts > 0) return;
+
+    // Nadir spawn - %0.3 şans
+    if (random.nextDouble() * 100 < 0.3) {
+      double x = random.nextDouble() * (size.x - 50) + 25;
+      // %33 ScoreBoost, %33 RocketBoost, %33 NegativeBoost
+      int boostType = random.nextInt(3);
+      if (boostType == 0) {
+        add(ScoreBoost(position: Vector2(x, -50)));
+      } else if (boostType == 1) {
+        add(RocketBoost(position: Vector2(x, -50)));
+      } else {
+        add(NegativeBoost(position: Vector2(x, -50)));
+      }
+    }
+  }
+
+  void activateScoreBoost() {
+    scoreMultiplier = 2.0;
+    scoreBoostTimer = scoreBoostDuration;
+  }
+
+  void activateRocketBoost() {
+    isRocketActive = true;
+    rocketTimer = rocketDuration;
+  }
+
+  void activateNegativeBoost() {
+    // -1000 puan
+    score -= 1000;
+    if (score < 0) score = 0;
+    scoreText.text = '${gameState.t('score')}: ${score.toInt()}';
+
+    // Tehlike göstergesi
+    _showDangerWarning();
+  }
+
+  void _showDangerWarning() {
+    final dangerText = TextComponent(
+      text: '☠️ -1000',
+      position: Vector2(size.x / 2, size.y / 3),
+      anchor: Anchor.center,
+      textRenderer: TextPaint(
+        style: GoogleFonts.poppins(
+          color: Colors.red,
+          fontSize: 40,
+          fontWeight: FontWeight.bold,
+          shadows: [
+            const Shadow(
+              blurRadius: 6,
+              color: Colors.black,
+              offset: Offset(2, 2),
+            ),
+          ],
+        ),
+      ),
+    );
+    add(dangerText);
+
+    // 1.5 saniye sonra kaldır
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      dangerText.removeFromParent();
+    });
+  }
+
+  void _updateBoostTimerDisplay() {
+    // En uzun süreyi göster
+    double displayTime = 0;
+    String emoji = '';
+
+    if (rocketTimer > scoreBoostTimer) {
+      displayTime = rocketTimer;
+      emoji = '🚀';
+    } else if (scoreBoostTimer > 0) {
+      displayTime = scoreBoostTimer;
+      emoji = '⭐';
+    }
+
+    if (displayTime > 0) {
+      if (boostTimerText == null) {
+        boostTimerText = TextComponent(
+          text: '$emoji ${displayTime.toStringAsFixed(1)}s',
+          position: Vector2(size.x - 100, 50),
+          textRenderer: TextPaint(
+            style: const TextStyle(
+              color: Colors.orange,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+        add(boostTimerText!);
+      } else {
+        boostTimerText!.text = '$emoji ${displayTime.toStringAsFixed(1)}s';
+      }
+    }
+  }
+
+  void _removeBoostTimerDisplay() {
+    // Her iki boost da bitmediyse kaldırma
+    if (rocketTimer > 0 || scoreBoostTimer > 0) return;
+
+    boostTimerText?.removeFromParent();
+    boostTimerText = null;
   }
 
   void gameOver() async {
@@ -448,6 +675,9 @@ class Player extends SpriteComponent
     super.onCollision(intersectionPoints, other);
 
     if (other is Platform) {
+      // Rocket modunda platformlara çarpma (zaten yukarı gidiyor)
+      if (gameRef.isRocketActive) return;
+
       bool isFalling = velocityY > 0;
       // Zıplama toleransı: Karakter platformun içine girse bile (hızlı düşüşlerde) zıplasın
       // Karakterin merkezi, platformun alt kenarından yukarıdaysa kabul et
@@ -459,7 +689,25 @@ class Player extends SpriteComponent
     }
 
     if (other is Enemy) {
+      // Rocket modunda düşmanlardan etkilenme
+      if (gameRef.isRocketActive) return;
       gameRef.gameOver();
+    }
+
+    // Boost collision
+    if (other is ScoreBoost) {
+      gameRef.activateScoreBoost();
+      other.removeFromParent();
+    }
+
+    if (other is RocketBoost) {
+      gameRef.activateRocketBoost();
+      other.removeFromParent();
+    }
+
+    if (other is NegativeBoost) {
+      gameRef.activateNegativeBoost();
+      other.removeFromParent();
     }
   }
 }
@@ -505,5 +753,104 @@ class Enemy extends SpriteComponent
     super.update(dt);
     position.y += speed * dt;
     angle += dt * 2;
+  }
+}
+
+// --- SCORE BOOST ---
+class ScoreBoost extends PositionComponent
+    with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
+  ScoreBoost({required Vector2 position})
+    : super(
+        position: position,
+        size: Vector2(40, 40),
+        anchor: Anchor.center,
+        priority: 8,
+      );
+
+  @override
+  Future<void> onLoad() async {
+    // Yıldız ikonu için TextComponent kullanıyoruz
+    add(
+      TextComponent(
+        text: '⭐',
+        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
+        anchor: Anchor.center,
+        position: Vector2(20, 20),
+      ),
+    );
+    add(CircleHitbox());
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    // Hafif dönme animasyonu
+    angle += dt * 3;
+  }
+}
+
+// --- ROCKET BOOST ---
+class RocketBoost extends PositionComponent
+    with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
+  RocketBoost({required Vector2 position})
+    : super(
+        position: position,
+        size: Vector2(40, 40),
+        anchor: Anchor.center,
+        priority: 8,
+      );
+
+  @override
+  Future<void> onLoad() async {
+    // Roket ikonu için TextComponent kullanıyoruz
+    add(
+      TextComponent(
+        text: '🚀',
+        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
+        anchor: Anchor.center,
+        position: Vector2(20, 20),
+      ),
+    );
+    add(CircleHitbox());
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    // Hafif yukarı aşağı hareket
+    position.y += sin(gameRef.score / 10) * 0.3;
+  }
+}
+
+// --- NEGATIVE BOOST ---
+class NegativeBoost extends PositionComponent
+    with HasGameRef<ZiplayanOyun>, CollisionCallbacks {
+  NegativeBoost({required Vector2 position})
+    : super(
+        position: position,
+        size: Vector2(40, 40),
+        anchor: Anchor.center,
+        priority: 8,
+      );
+
+  @override
+  Future<void> onLoad() async {
+    // Tehlike ikonu
+    add(
+      TextComponent(
+        text: '☠️',
+        textRenderer: TextPaint(style: const TextStyle(fontSize: 30)),
+        anchor: Anchor.center,
+        position: Vector2(20, 20),
+      ),
+    );
+    add(CircleHitbox());
+  }
+
+  @override
+  void update(double dt) {
+    super.update(dt);
+    // Hafif sallanma animasyonu
+    angle = sin(gameRef.score / 5) * 0.2;
   }
 }
